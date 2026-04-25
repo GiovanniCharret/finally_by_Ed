@@ -208,3 +208,27 @@ __marimo__/
 
 # Claude Code local settings (personal, not shared)
 .claude/settings.local.json
+
+# Personal/home dotfiles accidentally placed in repo root
+.bashrc
+.bash_profile
+.profile
+.zshrc
+.zprofile
+.gitconfig
+.ripgreprc
+.codex
+.codex/
+.mcp.json
+.write-test
+
+# Editor / IDE local config
+.idea
+.idea/
+.vscode
+.vscode/
+
+# WSL/dev artifacts that surfaced as /dev/null devices
+.gitmodules
+.claude/agents
+.claude/commands
