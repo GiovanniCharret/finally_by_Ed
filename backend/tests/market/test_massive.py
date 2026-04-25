@@ -1,6 +1,6 @@
 """Tests for MassiveDataSource (mocked)."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -16,6 +16,18 @@ def _make_snapshot(ticker: str, price: float, timestamp_ms: int) -> MagicMock:
     snap.last_trade.price = price
     snap.last_trade.timestamp = timestamp_ms
     return snap
+
+
+def _patch_fetch(source: MassiveDataSource, *, return_value=None, side_effect=None):
+    """Patch `_fetch_async` with an AsyncMock so the executor is never engaged.
+
+    Tests must avoid `asyncio.to_thread` to prevent the default executor from
+    keeping pytest alive at process teardown.
+    """
+    mock = AsyncMock(return_value=return_value) if side_effect is None else AsyncMock(
+        side_effect=side_effect
+    )
+    return patch.object(source, "_fetch_async", mock)
 
 
 @pytest.mark.asyncio
@@ -38,7 +50,7 @@ class TestMassiveDataSource:
             _make_snapshot("GOOGL", 175.25, 1707580800000),
         ]
 
-        with patch.object(source, "_fetch_snapshots", return_value=mock_snapshots):
+        with _patch_fetch(source, return_value=mock_snapshots):
             await source._poll_once()
 
         assert cache.get_price("AAPL") == 190.50
@@ -60,7 +72,7 @@ class TestMassiveDataSource:
         bad_snap.ticker = "BAD"
         bad_snap.last_trade = None  # Will cause AttributeError
 
-        with patch.object(source, "_fetch_snapshots", return_value=[good_snap, bad_snap]):
+        with _patch_fetch(source, return_value=[good_snap, bad_snap]):
             await source._poll_once()
 
         # Good ticker processed, bad one skipped
@@ -78,7 +90,7 @@ class TestMassiveDataSource:
         source._tickers = ["AAPL"]
         source._client = MagicMock()  # Satisfy the _poll_once guard
 
-        with patch.object(source, "_fetch_snapshots", side_effect=Exception("network error")):
+        with _patch_fetch(source, side_effect=Exception("network error")):
             await source._poll_once()  # Should not raise
 
         assert cache.get_price("AAPL") is None  # No update happened
@@ -96,7 +108,7 @@ class TestMassiveDataSource:
 
         mock_snapshots = [_make_snapshot("AAPL", 190.50, 1707580800000)]
 
-        with patch.object(source, "_fetch_snapshots", return_value=mock_snapshots):
+        with _patch_fetch(source, return_value=mock_snapshots):
             await source._poll_once()
 
         update = cache.get("AAPL")
@@ -153,8 +165,8 @@ class TestMassiveDataSource:
         source = MassiveDataSource(api_key="test-key", price_cache=cache)
         source._tickers = []
 
-        # Should not call _fetch_snapshots
-        with patch.object(source, "_fetch_snapshots") as mock_fetch:
+        # Should not call _fetch_async
+        with patch.object(source, "_fetch_async", AsyncMock()) as mock_fetch:
             await source._poll_once()
             mock_fetch.assert_not_called()
 
@@ -173,7 +185,7 @@ class TestMassiveDataSource:
 
         # Mock the client and start
         with patch("app.market.massive_client.RESTClient"):
-            with patch.object(source, "_fetch_snapshots", return_value=[]):
+            with _patch_fetch(source, return_value=[]):
                 await source.start(["AAPL"])
 
         # Verify task is running
@@ -192,10 +204,24 @@ class TestMassiveDataSource:
         mock_snapshots = [_make_snapshot("AAPL", 190.50, 1707580800000)]
 
         with patch("app.market.massive_client.RESTClient"):
-            with patch.object(source, "_fetch_snapshots", return_value=mock_snapshots):
+            with _patch_fetch(source, return_value=mock_snapshots):
                 await source.start(["AAPL"])
 
         # Cache should have data immediately from the first poll
         assert cache.get_price("AAPL") == 190.50
 
         await source.stop()
+
+    async def test_start_normalizes_initial_tickers(self):
+        """start() must uppercase + strip the initial ticker list."""
+        cache = PriceCache()
+        source = MassiveDataSource(api_key="test-key", price_cache=cache, poll_interval=60.0)
+
+        with patch("app.market.massive_client.RESTClient"):
+            with _patch_fetch(source, return_value=[]):
+                await source.start([" aapl ", "GoogL"])
+
+        try:
+            assert source.get_tickers() == ["AAPL", "GOOGL"]
+        finally:
+            await source.stop()

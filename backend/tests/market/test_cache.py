@@ -101,3 +101,24 @@ class TestPriceCache:
         cache = PriceCache()
         update = cache.update("AAPL", 190.12345)
         assert update.price == 190.12
+
+    def test_explicit_zero_timestamp_is_honored(self):
+        """An explicit timestamp of 0.0 must not be replaced with time.time()."""
+        cache = PriceCache()
+        update = cache.update("AAPL", 190.50, timestamp=0.0)
+        assert update.timestamp == 0.0
+
+    def test_remove_bumps_version_when_present(self):
+        """Removing a tracked ticker must bump the version so SSE notices it."""
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+        version_before = cache.version
+        cache.remove("AAPL")
+        assert cache.version == version_before + 1
+
+    def test_remove_does_not_bump_version_when_absent(self):
+        """No-op removal must not change the version counter."""
+        cache = PriceCache()
+        version_before = cache.version
+        cache.remove("AAPL")
+        assert cache.version == version_before

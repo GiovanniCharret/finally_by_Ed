@@ -1,5 +1,7 @@
 """Tests for GBMSimulator."""
 
+import numpy as np
+
 from app.market.seed_prices import SEED_PRICES
 from app.market.simulator import GBMSimulator
 
@@ -129,3 +131,24 @@ class TestGBMSimulator:
         if '.' in price_str:
             decimal_part = price_str.split('.')[1]
             assert len(decimal_part) <= 2
+
+    def test_default_watchlist_cholesky_is_valid(self):
+        """The Cholesky factor must build cleanly for the full default watchlist.
+
+        Regression check: any tweak to the correlation constants that produces
+        a non-positive-definite matrix would break simulator startup for the
+        ten default tickers.
+        """
+        default_watchlist = list(SEED_PRICES.keys())
+        assert len(default_watchlist) == 10
+        sim = GBMSimulator(tickers=default_watchlist)
+
+        cholesky = sim._cholesky
+        assert cholesky is not None
+        assert cholesky.shape == (10, 10)
+        # Reconstructing the correlation matrix should give a symmetric PSD result
+        reconstructed = cholesky @ cholesky.T
+        assert np.allclose(reconstructed, reconstructed.T)
+        assert np.all(np.linalg.eigvalsh(reconstructed) > -1e-9)
+        # Diagonal of a correlation matrix must be 1.0
+        assert np.allclose(np.diag(reconstructed), 1.0)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, Request
@@ -14,26 +15,27 @@ from .cache import PriceCache
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/stream", tags=["streaming"])
+# Comment heartbeat sent on this cadence so proxies/clients can detect stalls
+# during long stretches with no price-cache changes.
+HEARTBEAT_INTERVAL = 15.0
 
 
 def create_stream_router(price_cache: PriceCache) -> APIRouter:
     """Create the SSE streaming router with a reference to the price cache.
 
-    This factory pattern lets us inject the PriceCache without globals.
+    A fresh APIRouter is built per call so repeated invocations (in tests or
+    future app factories) do not accumulate duplicate `/prices` routes on a
+    shared module-level router.
     """
+    router = APIRouter(prefix="/api/stream", tags=["streaming"])
 
     @router.get("/prices")
     async def stream_prices(request: Request) -> StreamingResponse:
         """SSE endpoint for live price updates.
 
-        Streams all tracked ticker prices every ~500ms. The client connects
-        with EventSource and receives events in the format:
-
-            data: {"AAPL": {"ticker": "AAPL", "price": 190.50, ...}, ...}
-
-        Includes a retry directive so the browser auto-reconnects on
-        disconnection (EventSource built-in behavior).
+        Streams all tracked ticker prices whenever the cache version changes.
+        Emits a comment heartbeat every HEARTBEAT_INTERVAL seconds so clients
+        and intermediaries can detect stalled streams.
         """
         return StreamingResponse(
             _generate_events(price_cache, request),
@@ -52,22 +54,23 @@ async def _generate_events(
     price_cache: PriceCache,
     request: Request,
     interval: float = 0.5,
+    heartbeat_interval: float = HEARTBEAT_INTERVAL,
 ) -> AsyncGenerator[str, None]:
     """Async generator that yields SSE-formatted price events.
 
-    Sends all prices every `interval` seconds. Stops when the client
-    disconnects (detected via request.is_disconnected()).
+    Emits a JSON `data:` event on every cache version change and a `: heartbeat`
+    comment every `heartbeat_interval` seconds when the cache is otherwise idle.
+    Stops when the client disconnects.
     """
-    # Tell the client to retry after 1 second if the connection drops
     yield "retry: 1000\n\n"
 
     last_version = -1
+    last_heartbeat = time.monotonic()
     client_ip = request.client.host if request.client else "unknown"
     logger.info("SSE client connected: %s", client_ip)
 
     try:
         while True:
-            # Check for client disconnect
             if await request.is_disconnected():
                 logger.info("SSE client disconnected: %s", client_ip)
                 break
@@ -81,6 +84,12 @@ async def _generate_events(
                     data = {ticker: update.to_dict() for ticker, update in prices.items()}
                     payload = json.dumps(data)
                     yield f"data: {payload}\n\n"
+                    last_heartbeat = time.monotonic()
+
+            now = time.monotonic()
+            if now - last_heartbeat >= heartbeat_interval:
+                yield ": heartbeat\n\n"
+                last_heartbeat = now
 
             await asyncio.sleep(interval)
     except asyncio.CancelledError:
