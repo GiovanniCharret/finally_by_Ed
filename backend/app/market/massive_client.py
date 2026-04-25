@@ -40,7 +40,7 @@ class MassiveDataSource(MarketDataSource):
 
     async def start(self, tickers: list[str]) -> None:
         self._client = RESTClient(api_key=self._api_key)
-        self._tickers = list(tickers)
+        self._tickers = [t.upper().strip() for t in tickers]
 
         # Do an immediate first poll so the cache has data right away
         await self._poll_once()
@@ -48,7 +48,7 @@ class MassiveDataSource(MarketDataSource):
         self._task = asyncio.create_task(self._poll_loop(), name="massive-poller")
         logger.info(
             "Massive poller started: %d tickers, %.1fs interval",
-            len(tickers),
+            len(self._tickers),
             self._interval,
         )
 
@@ -92,9 +92,7 @@ class MassiveDataSource(MarketDataSource):
             return
 
         try:
-            # The Massive RESTClient is synchronous — run in a thread to
-            # avoid blocking the event loop.
-            snapshots = await asyncio.to_thread(self._fetch_snapshots)
+            snapshots = await self._fetch_async()
             processed = 0
             for snap in snapshots:
                 try:
@@ -119,6 +117,15 @@ class MassiveDataSource(MarketDataSource):
             logger.error("Massive poll failed: %s", e)
             # Don't re-raise — the loop will retry on the next interval.
             # Common failures: 401 (bad key), 429 (rate limit), network errors.
+
+    async def _fetch_async(self) -> list:
+        """Awaitable wrapper around the synchronous REST call.
+
+        Defaults to running `_fetch_snapshots` on the default executor via
+        `asyncio.to_thread`. Tests override this method directly so the
+        executor is never engaged in the test process.
+        """
+        return await asyncio.to_thread(self._fetch_snapshots)
 
     def _fetch_snapshots(self) -> list:
         """Synchronous call to the Massive REST API. Runs in a thread."""

@@ -27,7 +27,7 @@ class PriceCache:
         If this is the first update for the ticker, previous_price == price (direction='flat').
         """
         with self._lock:
-            ts = timestamp or time.time()
+            ts = time.time() if timestamp is None else timestamp
             prev = self._prices.get(ticker)
             previous_price = prev.price if prev else price
 
@@ -57,9 +57,14 @@ class PriceCache:
         return update.price if update else None
 
     def remove(self, ticker: str) -> None:
-        """Remove a ticker from the cache (e.g., when removed from watchlist)."""
+        """Remove a ticker from the cache (e.g., when removed from watchlist).
+
+        Bumps the version counter only when the ticker was actually present, so
+        SSE clients see the removal on their next change check.
+        """
         with self._lock:
-            self._prices.pop(ticker, None)
+            if self._prices.pop(ticker, None) is not None:
+                self._version += 1
 
     @property
     def version(self) -> int:

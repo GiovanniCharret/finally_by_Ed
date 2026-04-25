@@ -136,3 +136,44 @@ class TestSimulatorDataSource:
         # Just verify it starts and stops cleanly
         await asyncio.sleep(0.2)
         await source.stop()
+
+    async def test_start_normalizes_tickers(self):
+        """start() must uppercase + strip incoming ticker symbols."""
+        cache = PriceCache()
+        source = SimulatorDataSource(price_cache=cache, update_interval=0.5)
+        await source.start([" aapl ", "googl"])
+
+        try:
+            assert set(source.get_tickers()) == {"AAPL", "GOOGL"}
+            assert cache.get("AAPL") is not None
+            assert cache.get("GOOGL") is not None
+            assert cache.get("aapl") is None
+        finally:
+            await source.stop()
+
+    async def test_add_ticker_normalizes_input(self):
+        """add_ticker() must uppercase + strip the ticker."""
+        cache = PriceCache()
+        source = SimulatorDataSource(price_cache=cache, update_interval=0.5)
+        await source.start(["AAPL"])
+
+        try:
+            await source.add_ticker(" tsla ")
+            assert "TSLA" in source.get_tickers()
+            assert cache.get("TSLA") is not None
+            assert cache.get(" tsla ") is None
+        finally:
+            await source.stop()
+
+    async def test_remove_ticker_normalizes_input(self):
+        """remove_ticker() must resolve unnormalized symbols to the stored uppercase form."""
+        cache = PriceCache()
+        source = SimulatorDataSource(price_cache=cache, update_interval=0.5)
+        await source.start(["AAPL"])
+
+        try:
+            await source.remove_ticker(" aapl ")
+            assert "AAPL" not in source.get_tickers()
+            assert cache.get("AAPL") is None
+        finally:
+            await source.stop()
