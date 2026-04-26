@@ -1,0 +1,29 @@
+# Optional convenience wrapper around the single FinAlly container.
+# Run:
+#   docker compose up --build       # builds and starts in the foreground
+#   docker compose up -d --build    # detached
+#   docker compose down             # stops; volume `finally-data` persists
+
+services:
+  finally:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: finally:latest
+    container_name: finally
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - finally-data:/app/db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  finally-data:

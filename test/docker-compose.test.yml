@@ -1,0 +1,23 @@
+version: '3.8'
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: finally:test
+    ports:
+      - "8000:8000"
+    volumes:
+      - finally-test-data:/app/db
+    environment:
+      - LLM_MOCK=true
+      - OPENROUTER_API_KEY=mock-key-for-testing
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).status==200 else 1)\""]
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  finally-test-data:

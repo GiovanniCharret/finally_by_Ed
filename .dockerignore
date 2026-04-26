@@ -1,0 +1,43 @@
+# Source-control / local dev artifacts that should never enter the build context.
+.git
+.gitignore
+.gitattributes
+
+# Local secrets — pass at runtime via --env-file or compose env_file.
+.env
+
+# Frontend build output and dependencies — Stage 1 rebuilds them inside the image.
+frontend/node_modules
+frontend/.next
+frontend/out
+
+# Backend virtualenv, caches, and build artifacts — Stage 2 reinstalls cleanly.
+backend/.venv
+backend/.pytest_cache
+backend/.ruff_cache
+backend/.coverage
+backend/htmlcov
+backend/dist
+backend/build
+backend/*.egg-info
+
+# Runtime SQLite — only the mounted volume should hold this.
+db/finally.db
+db/finally.db-journal
+db/finally.db-wal
+db/finally.db-shm
+
+# Test artifacts
+test/node_modules
+test/test-results
+test/playwright-report
+
+# Editor / OS noise
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+**/.idea
+**/.vscode
+
+# Claude Code session state
+.claude

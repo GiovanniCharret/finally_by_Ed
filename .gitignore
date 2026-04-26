@@ -232,3 +232,17 @@ __marimo__/
 .gitmodules
 .claude/agents
 .claude/commands
+
+# FinAlly runtime SQLite database (kept in volume, not in git)
+db/finally.db
+db/finally.db-journal
+db/finally.db-wal
+db/finally.db-shm
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Backend virtualenv
+backend/.venv/
