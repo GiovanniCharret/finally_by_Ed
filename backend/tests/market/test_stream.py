@@ -61,11 +61,19 @@ class TestStreamGenerator:
 
         chunks = await _drain(gen, max_events=4)
 
-        data_chunks = [c for c in chunks if c.startswith("data: ")]
-        assert data_chunks, "expected at least one data event"
-        payload = json.loads(data_chunks[0][len("data: ") : -2])
-        assert "AAPL" in payload
-        assert payload["AAPL"]["price"] == 190.50
+        event_chunks = [c for c in chunks if c.startswith("event: price\n")]
+        assert event_chunks, "expected at least one price event"
+        first = event_chunks[0]
+        assert first.startswith("event: price\ndata: ")
+        data_line = first.split("\n")[1]
+        payload = json.loads(data_line[len("data: ") :])
+        assert payload["ticker"] == "AAPL"
+        assert payload["price"] == 190.50
+        assert payload["previous_price"] == 190.50
+        # Timestamp must be ISO 8601 UTC per PLAN.md §6
+        assert payload["timestamp"].endswith("Z")
+        assert "T" in payload["timestamp"]
+        assert payload["direction"] in ("up", "down", "unchanged")
 
     async def test_no_data_event_when_version_unchanged(self):
         cache = PriceCache()
@@ -74,9 +82,9 @@ class TestStreamGenerator:
         gen = _generate_events(cache, request, interval=0.01, heartbeat_interval=999.0)
 
         chunks = await _drain(gen, max_events=10)
-        data_chunks = [c for c in chunks if c.startswith("data: ")]
+        event_chunks = [c for c in chunks if c.startswith("event: price\n")]
         # Exactly one snapshot — the initial cache version. No further changes occurred.
-        assert len(data_chunks) == 1
+        assert len(event_chunks) == 1
 
     async def test_emits_data_event_after_remove(self):
         """Removing a ticker bumps the version and must surface to the stream."""
@@ -89,16 +97,16 @@ class TestStreamGenerator:
         first = await asyncio.wait_for(gen.__anext__(), timeout=2.0)  # retry
         second = await asyncio.wait_for(gen.__anext__(), timeout=2.0)  # initial data
         assert first.startswith("retry:")
-        assert second.startswith("data: ")
+        assert second.startswith("event: price\n")
 
         cache.remove("AAPL")
         # Drain a few more cycles
         rest = await _drain(gen, max_events=4)
-        data_after_remove = [c for c in rest if c.startswith("data: ")]
-        # Cache is empty after remove, so no data payload is emitted (generator
+        events_after_remove = [c for c in rest if c.startswith("event: price\n")]
+        # Cache is empty after remove, so no price event is emitted (generator
         # only yields when prices is non-empty). The version still changed, so
         # last_version was advanced — but we should NOT see a stale snapshot.
-        assert all('"AAPL"' not in chunk for chunk in data_after_remove)
+        assert all('"AAPL"' not in chunk for chunk in events_after_remove)
 
     async def test_heartbeat_emitted_when_idle(self):
         cache = PriceCache()

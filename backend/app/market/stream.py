@@ -7,11 +7,13 @@ import json
 import logging
 import time
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from .cache import PriceCache
+from .models import PriceUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +83,8 @@ async def _generate_events(
                 prices = price_cache.get_all()
 
                 if prices:
-                    data = {ticker: update.to_dict() for ticker, update in prices.items()}
-                    payload = json.dumps(data)
-                    yield f"data: {payload}\n\n"
+                    for update in prices.values():
+                        yield _format_price_event(update)
                     last_heartbeat = time.monotonic()
 
             now = time.monotonic()
@@ -94,3 +95,18 @@ async def _generate_events(
             await asyncio.sleep(interval)
     except asyncio.CancelledError:
         logger.info("SSE stream cancelled for: %s", client_ip)
+
+
+def _format_price_event(update: PriceUpdate) -> str:
+    """Render a PriceUpdate as a single SSE `event: price` block per PLAN.md §6."""
+    direction = update.direction if update.direction != "flat" else "unchanged"
+    payload = {
+        "ticker": update.ticker,
+        "price": update.price,
+        "previous_price": update.previous_price,
+        "timestamp": datetime.fromtimestamp(update.timestamp, tz=UTC).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        ),
+        "direction": direction,
+    }
+    return f"event: price\ndata: {json.dumps(payload)}\n\n"

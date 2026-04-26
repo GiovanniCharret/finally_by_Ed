@@ -10,6 +10,9 @@ dependencies = [
     "numpy>=2.0.0",
     "massive>=1.0.0",
     "rich>=13.0.0",
+    "litellm>=1.83.14",
+    "python-dotenv>=1.2.2",
+    "aiosqlite>=0.22.1",
 ]
 
 [project.optional-dependencies]
